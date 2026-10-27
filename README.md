@@ -1,4 +1,4 @@
-# Driver Updater
+# Verdant
 
 A small native Windows app that keeps an NVIDIA GeForce driver up to date. Built with Tauri 2 (Rust + the system WebView2), styled after Apple's Human Interface Guidelines.
 
@@ -22,7 +22,7 @@ Requires Rust (stable, MSVC) and the WebView2 runtime, which ships with Windows 
 cargo run --manifest-path src-tauri/Cargo.toml
 ```
 
-Release build (single exe at `src-tauri/target/release/driver-updater.exe`):
+Release build (single exe at `src-tauri/target/release/verdant.exe`):
 
 ```bash
 cargo build --release --manifest-path src-tauri/Cargo.toml
@@ -41,7 +41,7 @@ cargo tauri build
 
 - Every push to `main` (or a manual run) publishes `v<version>-build.<run number>`, for example `v1.0.0-build.2`.
 - Pushing a tag such as `v1.1.0` publishes a release under that tag.
-- Pull requests only build. The files are attached to the run as the `driver-updater-windows` artifact.
+- Pull requests only build. The files are attached to the run as the `verdant-windows` artifact.
 
 ## Layout
 
@@ -53,7 +53,7 @@ src-tauri/src/
   nvidia.rs         NVIDIA catalog and driver lookups, Steam artwork
   download.rs       resumable downloads and signature checks
   install.rs        elevated install
-  settings.rs       settings.json in %APPDATA%\dev.patrick.driverupdater
+  settings.rs       settings.json in %APPDATA%\dev.patrick.verdant
 ```
 
 Not affiliated with NVIDIA. GeForce, Game Ready and Studio are trademarks of NVIDIA Corporation.

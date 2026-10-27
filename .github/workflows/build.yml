@@ -33,9 +33,9 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: driver-updater-windows
+          name: verdant-windows
           path: |
-            src-tauri/target/release/driver-updater.exe
+            src-tauri/target/release/verdant.exe
             src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
@@ -48,10 +48,10 @@ jobs:
           $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
             $tag = $env:GITHUB_REF_NAME
-            $name = "Driver Updater $($tag.TrimStart('v'))"
+            $name = "Verdant $($tag.TrimStart('v'))"
           } else {
             $tag = "v$version-build.$env:GITHUB_RUN_NUMBER"
-            $name = "Driver Updater $version (build $env:GITHUB_RUN_NUMBER)"
+            $name = "Verdant $version (build $env:GITHUB_RUN_NUMBER)"
           }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "name=$name" >> $env:GITHUB_OUTPUT
@@ -66,5 +66,5 @@ jobs:
           generate_release_notes: true
           make_latest: true
           files: |
-            src-tauri/target/release/driver-updater.exe
+            src-tauri/target/release/verdant.exe
             src-tauri/target/release/bundle/nsis/*.exe

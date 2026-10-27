@@ -595,7 +595,7 @@ function navigate(page) {
 function problemState() {
   if (state.loading) return null;
   const msgs = {
-    'no-gpu': ['cpu', 'No NVIDIA graphics card found', 'Driver Updater couldn’t find an NVIDIA GPU in this PC. If one is installed, make sure it’s enabled in Device Manager.', ''],
+    'no-gpu': ['cpu', 'No NVIDIA graphics card found', 'Verdant couldn’t find an NVIDIA GPU in this PC. If one is installed, make sure it’s enabled in Device Manager.', ''],
     'no-product': ['search', 'Choose your graphics card', `NVIDIA’s catalog doesn’t list “${state.detection?.gpu?.name}” by that exact name. Search for your card to continue.`, '<button class="btn blue" data-page="search">Search Graphics Cards</button>'],
     network: ['warn', 'Can’t reach NVIDIA', `Check your internet connection and try again. ${state.errorDetail || ''}`, '<button class="btn blue" data-action="refresh">Try Again</button>']
   };
@@ -931,7 +931,7 @@ function settingsPage() {
           <button class="${s.channel !== 'studio' ? 'on' : ''}" data-action="channel" data-value="game-ready" role="radio" aria-checked="${s.channel !== 'studio'}">Game Ready</button>
           <button class="${s.channel === 'studio' ? 'on' : ''}" data-action="channel" data-value="studio" role="radio" aria-checked="${s.channel === 'studio'}">Studio</button>
         </div></div>
-      ${sw('autoCheck', 'Check for updates automatically', 'While Driver Updater is open.')}
+      ${sw('autoCheck', 'Check for updates automatically', 'While Verdant is open.')}
       <div class="cell"><div class="grow"><div class="title">Check every</div></div>
         <select class="popup" data-setting-select="checkIntervalHours" ${s.autoCheck ? '' : 'disabled'}>
           ${[[1, 'Hour'], [6, '6 Hours'], [24, 'Day']].map(([v, l]) => `<option value="${v}" ${s.checkIntervalHours === v ? 'selected' : ''}>${l}</option>`).join('')}
@@ -957,7 +957,7 @@ function settingsPage() {
       <button class="btn" data-action="reveal-folder">${icon('folder')}Show in Explorer</button></div></div>
     <div class="group-title">About</div>
     <div class="group">
-      <div class="cell"><div class="grow">Driver Updater</div><div class="val">Version 1.0.0</div></div>
+      <div class="cell"><div class="grow">Verdant</div><div class="val">Version 1.0.0</div></div>
       <div class="cell"><div class="grow">Driver data</div><div class="val">NVIDIA driver download service</div></div>
       <div class="cell"><div class="grow">Game artwork</div><div class="val">Steam store</div></div>
     </div>

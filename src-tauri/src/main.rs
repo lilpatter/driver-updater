@@ -140,5 +140,5 @@ fn main() {
             settings_set
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Driver Updater");
+        .expect("error while running Verdant");
 }

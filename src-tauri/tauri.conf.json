@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Driver Updater",
+  "productName": "Verdant",
   "version": "1.0.0",
-  "identifier": "dev.patrick.driverupdater",
+  "identifier": "dev.patrick.verdant",
   "build": {
     "frontendDist": "../ui"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Driver Updater",
+        "title": "Verdant",
         "width": 1280,
         "height": 820,
         "minWidth": 1000,
