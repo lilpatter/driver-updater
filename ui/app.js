@@ -264,7 +264,7 @@ function loadArtwork() {
     state.games[name] = null;
     invoke('game_art', { name }).then((art) => {
       state.games[name] = art;
-      if (state.page === 'home') { renderHero(); patch('#games-shelf', gamesShelf()); }
+      if (state.page === 'home') { renderHero(); patch('#games-shelf', gamesShelf()); updateAllRowNavs(); }
     });
   }
 }
@@ -415,18 +415,89 @@ function openInstall(d, path, note = '') {
     </footer>`, { small: true });
 }
 
+// ---------- Install progress, read from NVIDIA's own setup log ----------
+const PACKAGE_LABELS = [
+  [/^Display\.Driver/, 'graphics driver'],
+  [/^HDAudio/, 'HD Audio driver'],
+  [/^Display\.PhysX/, 'PhysX'],
+  [/^Display\.NvApp|^NvCpl|^ShadowPlay/, 'NVIDIA App'],
+  [/^VirtualAudio/, 'virtual audio driver'],
+  [/^USBC/, 'USB-C driver'],
+  [/^FrameView/, 'FrameView SDK'],
+  [/^NvDLISR/, 'image scaling'],
+  [/^MSVC/, 'Visual C++ runtime'],
+  [/^Nv(Container|Telemetry|Plugin|Backend)/, 'NVIDIA services']
+];
+const packageLabel = (name) => PACKAGE_LABELS.find(([re]) => re.test(name || ''))?.[1] || name;
+
+function phaseVerb(phase) {
+  if (!phase || /^install/i.test(phase)) return 'Installing';
+  if (/^(remove|delete|clear|stop|clean)/i.test(phase)) return 'Clearing old files for';
+  if (/^(check|decide|get)/i.test(phase)) return 'Checking';
+  return 'Setting up';
+}
+
+function fmtElapsed(s) {
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} elapsed`;
+}
+
+// Unpacking and checks are quick; NVIDIA's step counter covers the real install, so it gets most of the bar.
+function installProgressView(p) {
+  const run = state.installing || {};
+  let title, detail, percent = null;
+  if (p.stage === 'permission') {
+    title = 'Waiting for permission';
+    detail = 'Approve the Windows prompt to continue.';
+  } else if (p.stage === 'unpacking') {
+    title = 'Unpacking installer';
+    detail = `${fmtBytes(p.unpackedBytes)} of about ${fmtBytes(run.expectedBytes)}`;
+    percent = 10 * Math.min(1, p.unpackedBytes / run.expectedBytes);
+  } else if (p.stage === 'InstallProgress') {
+    const label = packageLabel(p.package);
+    title = label ? `${phaseVerb(p.phase)} ${label}` : 'Installing';
+    detail = p.package === 'Display.Driver' && /^install/i.test(p.phase || '')
+      ? 'Your screen may flicker or go dark for a moment. This is the longest step.'
+      : run.express ? 'Running quietly in the background.' : 'Follow the steps in NVIDIA’s installer.';
+    percent = p.totalUnits ? 15 + 85 * Math.min(1, p.doneUnits / p.totalUnits) : 15;
+  } else if (/finish|complete|reboot/i.test(p.stage)) {
+    title = 'Finishing up';
+    detail = 'Almost done.';
+    percent = 100;
+  } else {
+    title = 'Checking your system';
+    detail = 'Making sure this driver fits your PC.';
+    percent = 12;
+  }
+  if (percent != null) {
+    run.percent = Math.max(run.percent || 0, percent);
+    percent = run.percent;
+  }
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+      <div class="title" style="font-weight:600">${esc(title)}</div>
+      <div style="color:var(--label-2);font-variant-numeric:tabular-nums">${percent == null ? '' : `${Math.floor(percent)}%`}</div>
+    </div>
+    <div class="meter install-meter ${percent == null ? 'indeterminate' : ''}"><i style="width:${percent ?? 30}%"></i></div>
+    <div style="display:flex;justify-content:space-between;gap:12px;color:var(--label-2);font-size:12px;margin-top:8px">
+      <span>${esc(detail)}</span><span style="white-space:nowrap;font-variant-numeric:tabular-nums">${fmtElapsed(p.elapsedSecs || 0)}</span>
+    </div>`;
+}
+
+T.event.listen('install-progress', ({ payload }) => {
+  if (state.installing) patch('#install-progress', installProgressView(payload));
+});
+
 async function runInstall(version, studio, path) {
   const d = await getDriver(version, studio);
   const express = state.settings.expressInstall;
   const clean = express && $('#clean-toggle')?.checked;
   await saveSettings({ cleanInstall: !!$('#clean-toggle')?.checked });
   const before = installed();
-  state.installing = true;
+  state.installing = { version: d.version, expectedBytes: (state.installers.find((i) => i.path === path)?.size || 1e9) * 4, percent: 0, express };
   openSheet(`
-    <div class="body center" style="padding:30px 26px 26px">
-      <div class="spinner"></div>
-      <h3 style="font:700 18px var(--font-display);margin:0 0 6px">Installing ${esc(d.version)}…</h3>
-      <div style="color:var(--label-2)">${express ? 'Approve the Windows prompt to continue. This usually takes two to five minutes, and your screen may go dark briefly.' : 'Approve the Windows prompt, then follow the steps in NVIDIA’s installer.'}</div>
+    <div class="body" style="padding:26px 26px 22px">
+      <h3 style="font:700 18px var(--font-display);margin:0 0 14px">Installing ${esc(d.version)}</h3>
+      <div id="install-progress">${installProgressView({ stage: 'permission', elapsedSecs: 0 })}</div>
     </div>`, { small: true, locked: true });
   let result;
   try {
@@ -502,7 +573,7 @@ function render() {
 function renderPage() {
   const pages = { home: homePage, search: searchPage, downloads: downloadsPage, gameready: () => releasesPage(false), studio: () => releasesPage(true), gpu: gpuPage, settings: settingsPage };
   $('#page').innerHTML = (pages[state.page] || homePage)();
-  if (state.page === 'home') renderHero();
+  if (state.page === 'home') { renderHero(); updateAllRowNavs(); }
   if (state.page === 'search') {
     const input = $('#search-input');
     input.focus();
@@ -554,9 +625,9 @@ function homePage() {
     </section>
     <section class="shelf">
       <h2>Recent Releases <small>${esc(state.product.name)} · ${state.detection.system.isWindows11 ? 'Windows 11' : 'Windows 10'}</small></h2>
-      <div class="row">${[...state.drivers.gr.slice(0, 6), ...state.drivers.st.slice(0, 3)]
+      ${scroller([...state.drivers.gr.slice(0, 6), ...state.drivers.st.slice(0, 3)]
         .sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''))
-        .map(releaseCard).join('')}</div>
+        .map(releaseCard).join(''), 'releases')}
     </section>
     <div style="height:24px"></div>`;
 }
@@ -624,7 +695,7 @@ function gamesShelf() {
   const d = slides().find((x) => x.games.length);
   if (!d) return '';
   return `<h2>Game Ready For <small>Optimized in ${esc(d.version)}</small></h2>
-    <div class="row">${d.games.map((name) => {
+    ${scroller(d.games.map((name) => {
       const g = state.games[name];
       const art = g === null || g === undefined
         ? '<div class="skeleton" style="position:absolute;inset:0;border-radius:0"></div>'
@@ -634,8 +705,31 @@ function gamesShelf() {
         <div class="art">${art}</div>
         <div class="name">${esc(g?.name || name)}</div>
         <div class="sub">${esc(g ? sub : 'Loading…')}</div></div>`;
-    }).join('')}</div>`;
+    }).join(''), 'games')}`;
 }
+
+// Horizontal shelf with TV-app style arrows; a mouse wheel can't scroll sideways on its own.
+function scroller(items, label) {
+  return `<div class="row-wrap" data-at-start="true">
+    <button class="row-nav prev" data-action="row-scroll" data-dir="-1" aria-label="Scroll ${label} left"><svg class="i" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <div class="row">${items}</div>
+    <button class="row-nav next" data-action="row-scroll" data-dir="1" aria-label="Scroll ${label} right">${icon('chevron')}</button>
+  </div>`;
+}
+
+function updateRowNav(row) {
+  const wrap = row.closest('.row-wrap');
+  if (!wrap) return;
+  wrap.dataset.atStart = row.scrollLeft <= 4;
+  wrap.dataset.atEnd = row.scrollLeft + row.clientWidth >= row.scrollWidth - 4;
+}
+
+function updateAllRowNavs() {
+  document.querySelectorAll('.row-wrap .row').forEach(updateRowNav);
+}
+
+document.addEventListener('scroll', (e) => { if (e.target.classList?.contains('row')) updateRowNav(e.target); }, true);
+window.addEventListener('resize', updateAllRowNavs);
 
 function systemStats() {
   const g = state.detection.gpu;
@@ -644,7 +738,7 @@ function systemStats() {
   return [
     ['cpu', 'Graphics', esc(g.name.replace(/^NVIDIA\s+(GeForce\s+)?/, ''))],
     ['shield', 'Installed driver', `${esc(g.driverVersion || '—')}`],
-    ['clock', 'Driver date', esc(s.driverDate ? fmtDate(s.driverDate) : '—')],
+    ['clock', 'Driver date', s.driverDate ? `${esc(fmtDate(s.driverDate).replace(/, \d{4}$/, ''))}<small> ${s.driverDate.slice(0, 4)}</small>` : '—'],
     ['memory', 'Video memory', vram],
     ['thermo', 'Temperature', g.temperatureC != null ? `${g.temperatureC}<small> °C</small>` : '—'],
     ['gauge', 'Windows', esc(`${s.isWindows11 ? '11' : '10'} · ${s.osBuild}`)]
@@ -880,6 +974,10 @@ const actions = {
   'dismiss-banner': () => { $('#banner').innerHTML = ''; },
   'close-sheet': closeSheet,
   slide: (el) => { state.slide = Number(el.dataset.index); renderHero(); },
+  'row-scroll': (el) => {
+    const row = el.parentElement.querySelector('.row');
+    row.scrollBy({ left: Number(el.dataset.dir) * row.clientWidth * 0.85, behavior: 'smooth' });
+  },
   notes: async (el) => openNotes(await getDriver(el.dataset.version, el.dataset.studio)),
   primary: (el) => { closeSheet(); primary(el.dataset.version, el.dataset.studio).catch((e) => banner('Something went wrong', String(e))); },
   open: (el) => invoke('open_url', { url: el.dataset.url }),

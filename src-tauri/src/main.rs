@@ -91,7 +91,7 @@ fn reveal(app: AppHandle, path: Option<String>) -> Result<(), String> {
 #[tauri::command]
 async fn install(app: AppHandle, path: String, express: bool, clean: bool) -> Result<install::InstallResult, String> {
     let p = download::ensure_inside(&app, &path)?;
-    blocking(move || install::run(&p, express, clean)).await?
+    blocking(move || install::run(&app, &p, express, clean)).await?
 }
 
 #[tauri::command]

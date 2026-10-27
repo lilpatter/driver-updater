@@ -153,6 +153,18 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .row { display: flex; gap: 14px; overflow-x: auto; padding: 0 32px 10px; scroll-padding: 0 32px; scrollbar-width: none; scroll-snap-type: x mandatory; }
 .row::after { content: ""; flex: none; width: 18px; }
 .row::-webkit-scrollbar { display: none; }
+.row-wrap { position: relative; }
+.row-nav {
+  position: absolute; top: 0; bottom: 10px; width: 32px; z-index: 3;
+  display: grid; place-items: center; color: #fff;
+  opacity: 0; transition: opacity 0.18s ease;
+}
+.row-nav::before { content: ""; position: absolute; width: 34px; height: 34px; border-radius: 50%; background: rgba(28, 28, 30, 0.82); backdrop-filter: blur(20px); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
+.row-nav .i { position: relative; width: 18px; height: 18px; stroke-width: 2.2; }
+.row-nav.prev { left: 14px; }
+.row-nav.next { right: 14px; }
+.row-wrap:hover .row-nav, .row-nav:focus-visible { opacity: 1; }
+.row-wrap[data-at-start="true"] .row-nav.prev, .row-wrap[data-at-end="true"] .row-nav.next { opacity: 0; pointer-events: none; }
 .tile { flex: none; width: 300px; scroll-snap-align: start; }
 .tile .art { aspect-ratio: 460 / 215; border-radius: 10px; overflow: hidden; background: var(--card); position: relative; }
 .tile .art img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.25s ease; }
@@ -179,6 +191,10 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .meter { height: 4px; border-radius: 2px; background: var(--fill); margin-top: 10px; overflow: hidden; }
 .meter i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.4s ease; }
 .meter.hot i { background: var(--orange); }
+.install-meter { height: 6px; border-radius: 3px; margin-top: 10px; }
+.install-meter i { border-radius: 3px; }
+.install-meter.indeterminate i { animation: sweep 1.3s ease-in-out infinite; transition: none; }
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 
 /* Grouped inset lists (Settings, lists) */
 .group-title { font-size: 11px; font-weight: 600; color: var(--label-2); margin: 22px 4px 6px; text-transform: uppercase; letter-spacing: 0.4px; }
