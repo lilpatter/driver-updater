@@ -3,6 +3,7 @@
 mod download;
 mod install;
 mod nvidia;
+mod selfupdate;
 mod settings;
 mod system;
 
@@ -116,7 +117,18 @@ fn settings_set(app: AppHandle, value: settings::Settings) -> Result<(), String>
     settings::save(&app, &value)
 }
 
+#[tauri::command]
+async fn app_update_check(app: AppHandle) -> Result<selfupdate::Status, String> {
+    selfupdate::check(&app).await
+}
+
+#[tauri::command]
+async fn app_update_install(app: AppHandle) -> Result<(), String> {
+    selfupdate::install(&app).await
+}
+
 fn main() {
+    selfupdate::cleanup();
     tauri::Builder::default()
         .manage(Downloads::default())
         .invoke_handler(tauri::generate_handler![
@@ -137,7 +149,9 @@ fn main() {
             install,
             open_url,
             settings_get,
-            settings_set
+            settings_set,
+            app_update_check,
+            app_update_install
         ])
         .run(tauri::generate_context!())
         .expect("error while running Verdant");

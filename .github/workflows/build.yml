@@ -28,8 +28,11 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
+      # The app compares this with the build number in the latest release's tag to update itself.
       - name: Build app and installer
         run: cargo tauri build
+        env:
+          VERDANT_BUILD: ${{ github.run_number }}
 
       - uses: actions/upload-artifact@v7
         with:

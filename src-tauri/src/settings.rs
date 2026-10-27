@@ -13,6 +13,7 @@ pub struct Settings {
     pub express_install: bool,
     pub clean_install: bool,
     pub delete_after_install: bool,
+    pub auto_update: bool,
     pub product_override: Option<Value>,
 }
 
@@ -25,6 +26,7 @@ impl Default for Settings {
             express_install: true,
             clean_install: false,
             delete_after_install: false,
+            auto_update: true,
             product_override: None,
         }
     }

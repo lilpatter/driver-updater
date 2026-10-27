@@ -285,6 +285,86 @@ function scheduleAutoCheck() {
   }, 5 * 60000);
 }
 
+// ---------- Verdant's own updates ----------
+// phase: idle → waiting (for a driver download or install to finish) → countdown → installing
+const appUpdate = { status: null, checking: false, error: null, phase: 'idle', countdown: 0, timer: null, deferred: false, percent: 0 };
+const appVersion = (s) => !s ? '' : `${s.version} (${s.build == null ? 'local build' : `build ${s.build}`})`;
+const appBusy = () => ['downloading', 'verifying'].includes(state.download?.state) || state.installing || !$('#sheet').hidden;
+
+async function checkAppUpdate({ manual = false } = {}) {
+  if (appUpdate.checking || appUpdate.phase === 'installing') return;
+  appUpdate.checking = true;
+  if (state.page === 'settings') renderPage();
+  try {
+    appUpdate.status = await invoke('app_update_check');
+    appUpdate.error = null;
+  } catch (e) {
+    appUpdate.error = String(e);
+    if (manual) banner('Couldn’t check for Verdant updates', String(e));
+  }
+  appUpdate.checking = false;
+  if (state.page === 'settings') renderPage();
+  const latest = appUpdate.status?.latest;
+  if (latest?.newer) {
+    if (manual) installAppUpdate();
+    else if (state.settings.autoUpdate && !appUpdate.deferred && appUpdate.phase === 'idle') waitToUpdate();
+  } else if (manual && appUpdate.status) {
+    banner(appUpdate.status.build == null ? 'This is a local build' : 'Verdant is up to date', appUpdate.status.build == null ? 'Only builds from GitHub update themselves.' : `You have ${appVersion(appUpdate.status)}.`, 'ok');
+  }
+}
+
+function waitToUpdate() {
+  clearInterval(appUpdate.timer);
+  appUpdate.phase = 'waiting';
+  const tryStart = () => {
+    if (appBusy()) return;
+    clearInterval(appUpdate.timer);
+    appUpdate.phase = 'countdown';
+    appUpdate.countdown = 10;
+    renderAppUpdateBanner();
+    appUpdate.timer = setInterval(() => {
+      if (appBusy()) { appUpdate.phase = 'idle'; $('#banner').innerHTML = ''; waitToUpdate(); return; }
+      if (--appUpdate.countdown <= 0) installAppUpdate();
+      else renderAppUpdateBanner();
+    }, 1000);
+  };
+  appUpdate.timer = setInterval(tryStart, 15000);
+  tryStart();
+}
+
+async function installAppUpdate() {
+  clearInterval(appUpdate.timer);
+  if (appUpdate.phase === 'installing') return;
+  appUpdate.phase = 'installing';
+  appUpdate.percent = 0;
+  renderAppUpdateBanner();
+  try {
+    await invoke('app_update_install');
+  } catch (e) {
+    appUpdate.phase = 'idle';
+    banner('Couldn’t update Verdant', String(e));
+  }
+  if (state.page === 'settings') renderPage();
+}
+
+function renderAppUpdateBanner() {
+  clearTimeout(banner.t);
+  const name = esc(appUpdate.status?.latest?.name || 'A new version of Verdant');
+  const body = appUpdate.phase === 'installing'
+    ? `<b>Updating to ${name}</b><div class="note">${appUpdate.percent >= 100 ? 'Restarting…' : `Downloading… ${appUpdate.percent}%`}</div>`
+    : `<b>${name} is available</b><div class="note">Verdant will restart to update in ${appUpdate.countdown} s.</div>`;
+  const buttons = appUpdate.phase === 'installing' ? ''
+    : '<button class="btn" data-action="app-update-later">Later</button><button class="btn blue" data-action="app-update-now">Update Now</button>';
+  $('#banner').innerHTML = `<div class="banner ok" role="status">${icon('refresh')}<div class="grow">${body}</div>${buttons}</div>`;
+}
+
+T.event.listen('self-update', ({ payload: p }) => {
+  appUpdate.percent = p.state === 'restarting' ? 100 : Math.floor((p.received / (p.total || 1)) * 100);
+  if (appUpdate.phase === 'installing') renderAppUpdateBanner();
+});
+
+setInterval(() => { if (state.settings?.autoUpdate) checkAppUpdate(); }, 6 * 3600000);
+
 // ---------- Downloads & install ----------
 async function getDriver(version, studio) {
   const d = findDriver(version, studio === undefined ? undefined : studio === 'true' || studio === true);
@@ -918,6 +998,17 @@ function gpuPage() {
 }
 
 // Settings
+function appUpdateNote() {
+  const s = appUpdate.status;
+  if (appUpdate.phase === 'installing') return 'Updating…';
+  if (appUpdate.checking) return 'Checking GitHub…';
+  if (appUpdate.error) return esc(appUpdate.error);
+  if (!s) return '';
+  if (s.build == null) return 'Local build. Only builds from GitHub update themselves.';
+  if (s.latest?.newer) return `${esc(s.latest.name)} is available`;
+  return 'Up to date';
+}
+
 function settingsPage() {
   const s = state.settings;
   const sw = (key, label, note) => `<div class="cell"><div class="grow"><div class="title">${label}</div>${note ? `<div class="note">${note}</div>` : ''}</div>
@@ -957,7 +1048,10 @@ function settingsPage() {
       <button class="btn" data-action="reveal-folder">${icon('folder')}Show in Explorer</button></div></div>
     <div class="group-title">About</div>
     <div class="group">
-      <div class="cell"><div class="grow">Verdant</div><div class="val">Version 1.0.0</div></div>
+      <div class="cell"><div class="grow"><div class="title">Verdant</div><div class="note">${appUpdateNote()}</div></div>
+        <div class="val">${appUpdate.status ? `Version ${esc(appVersion(appUpdate.status))}` : ''}</div>
+        <button class="btn${appUpdate.status?.latest?.newer ? ' blue' : ''}" data-action="app-update-check" ${appUpdate.checking || appUpdate.phase === 'installing' ? 'disabled' : ''}>${appUpdate.status?.latest?.newer ? 'Update Now' : 'Check Now'}</button></div>
+      ${sw('autoUpdate', 'Update Verdant automatically', 'Installs new versions from GitHub and restarts Verdant when it isn’t busy.')}
       <div class="cell"><div class="grow">Driver data</div><div class="val">NVIDIA driver download service</div></div>
       <div class="cell"><div class="grow">Game artwork</div><div class="val">Steam store</div></div>
     </div>
@@ -1011,6 +1105,9 @@ const actions = {
     navigate('home');
     check();
   },
+  'app-update-check': () => (appUpdate.status?.latest?.newer ? installAppUpdate() : checkAppUpdate({ manual: true })),
+  'app-update-now': installAppUpdate,
+  'app-update-later': () => { clearInterval(appUpdate.timer); appUpdate.phase = 'idle'; appUpdate.deferred = true; $('#banner').innerHTML = ''; },
   'clear-product': async () => { await saveSettings({ productOverride: null }); state.loading = true; navigate('home'); check(); }
 };
 
@@ -1029,6 +1126,7 @@ document.addEventListener('change', async (e) => {
   if (key) {
     await saveSettings({ [key]: e.target.checked });
     if (key === 'autoCheck') { scheduleAutoCheck(); renderPage(); }
+    if (key === 'autoUpdate' && e.target.checked) { appUpdate.deferred = false; checkAppUpdate(); }
   }
   const sel = e.target.dataset.settingSelect;
   if (sel) { await saveSettings({ [sel]: Number(e.target.value) }); scheduleAutoCheck(); }
@@ -1061,8 +1159,9 @@ document.addEventListener('contextmenu', (e) => { if (!e.target.closest('input, 
   try {
     state.settings = await invoke('settings_get');
   } catch {
-    state.settings = { channel: 'game-ready', autoCheck: true, checkIntervalHours: 6, expressInstall: true, cleanInstall: false, deleteAfterInstall: false, productOverride: null };
+    state.settings = { channel: 'game-ready', autoCheck: true, checkIntervalHours: 6, expressInstall: true, cleanInstall: false, deleteAfterInstall: false, autoUpdate: true, productOverride: null };
   }
   await Promise.all([check(), refreshInstallers()]);
   scheduleAutoCheck();
+  checkAppUpdate();
 })();

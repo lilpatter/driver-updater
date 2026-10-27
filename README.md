@@ -43,6 +43,17 @@ cargo tauri build
 - Pushing a tag such as `v1.1.0` publishes a release under that tag.
 - Pull requests only build. The files are attached to the run as the `verdant-windows` artifact.
 
+## Self-update
+
+CI builds embed their run number (`VERDANT_BUILD`). On launch and every 6 hours Verdant asks GitHub for the latest release and compares `<version>` and the build number in its tag with its own. If the release is newer, Verdant waits until no driver download or install is running and counts down for 10 seconds. You can choose Later or Update Now. Then it:
+
+1. Downloads `verdant.exe` from the release next to the running exe, as `<exe>.new`, and checks its size and GitHub's SHA-256 digest.
+2. Renames the running exe to `<exe>.old`. Windows allows renaming a running exe but not deleting it.
+3. Moves `<exe>.new` into its place, starts it with `--updated`, and exits.
+4. The new process waits for the old one to exit, deletes `<exe>.old`, then opens its window.
+
+This works for the portable exe and for the NSIS install, which goes to `%LOCALAPPDATA%` and so needs no admin rights. Local builds have no build number and never update themselves. You can turn self-update off under Settings › About.
+
 ## Layout
 
 ```
@@ -53,6 +64,7 @@ src-tauri/src/
   nvidia.rs         NVIDIA catalog and driver lookups, Steam artwork
   download.rs       resumable downloads and signature checks
   install.rs        elevated install
+  selfupdate.rs     updates Verdant itself from GitHub Releases
   settings.rs       settings.json in %APPDATA%\dev.patrick.verdant
 ```
 
