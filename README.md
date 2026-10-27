@@ -37,7 +37,11 @@ cargo tauri build
 
 ## CI
 
-`.github/workflows/build.yml` builds on every push to `main`, on pull requests, and on demand. Each run uploads the portable exe and the NSIS setup as the `driver-updater-windows` artifact. Pushing a tag such as `v1.0.0` also attaches both files to a GitHub Release.
+`.github/workflows/build.yml` builds the portable exe and the NSIS setup on Windows and publishes them as a GitHub Release:
+
+- Every push to `main` (or a manual run) publishes `v<version>-build.<run number>`, for example `v1.0.0-build.2`.
+- Pushing a tag such as `v1.1.0` publishes a release under that tag.
+- Pull requests only build. The files are attached to the run as the `driver-updater-windows` artifact.
 
 ## Layout
 
