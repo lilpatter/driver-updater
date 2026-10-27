@@ -287,9 +287,15 @@ function scheduleAutoCheck() {
 
 // ---------- Verdant's own updates ----------
 // phase: idle → waiting (for a driver download or install to finish) → countdown → installing
-const appUpdate = { status: null, checking: false, error: null, phase: 'idle', countdown: 0, timer: null, deferred: false, percent: 0 };
-const appVersion = (s) => !s ? '' : `${s.version} (${s.build == null ? 'local build' : `build ${s.build}`})`;
+const appUpdate = { status: null, checking: false, error: null, phase: 'idle', countdown: 0, timer: null, deferred: false, percent: 0, welcomed: false };
 const appBusy = () => ['downloading', 'verifying'].includes(state.download?.state) || state.installing || !$('#sheet').hidden;
+
+function appVersion(s) {
+  if (!s) return '';
+  if (!s.tag) return `${s.version} (local build)`;
+  const m = s.tag.match(/^v?(.+?)-build\.(\d+)$/);
+  return m ? `${m[1]} (build ${m[2]})` : s.tag.replace(/^v/, '');
+}
 
 async function checkAppUpdate({ manual = false } = {}) {
   if (appUpdate.checking || appUpdate.phase === 'installing') return;
@@ -305,11 +311,15 @@ async function checkAppUpdate({ manual = false } = {}) {
   appUpdate.checking = false;
   if (state.page === 'settings') renderPage();
   const latest = appUpdate.status?.latest;
+  if (appUpdate.status?.justUpdated && !appUpdate.welcomed) {
+    appUpdate.welcomed = true;
+    if (!latest?.newer) banner(`Updated to ${appVersion(appUpdate.status)}`, 'You’re running the latest Verdant.', 'ok');
+  }
   if (latest?.newer) {
     if (manual) installAppUpdate();
     else if (state.settings.autoUpdate && !appUpdate.deferred && appUpdate.phase === 'idle') waitToUpdate();
   } else if (manual && appUpdate.status) {
-    banner(appUpdate.status.build == null ? 'This is a local build' : 'Verdant is up to date', appUpdate.status.build == null ? 'Only builds from GitHub update themselves.' : `You have ${appVersion(appUpdate.status)}.`, 'ok');
+    banner(appUpdate.status.tag ? 'Verdant is up to date' : 'This is a local build', appUpdate.status.tag ? `You have ${appVersion(appUpdate.status)}.` : 'Only builds from GitHub update themselves.', 'ok');
   }
 }
 
@@ -1004,7 +1014,7 @@ function appUpdateNote() {
   if (appUpdate.checking) return 'Checking GitHub…';
   if (appUpdate.error) return esc(appUpdate.error);
   if (!s) return '';
-  if (s.build == null) return 'Local build. Only builds from GitHub update themselves.';
+  if (!s.tag) return 'Local build. Only builds from GitHub update themselves.';
   if (s.latest?.newer) return `${esc(s.latest.name)} is available`;
   return 'Up to date';
 }

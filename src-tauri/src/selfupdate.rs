@@ -15,20 +15,24 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 
-const LATEST: &str = "https://api.github.com/repos/lilpatter/verdant/releases/latest";
+const REPO: &str = "lilpatter/verdant";
 const ASSET: &str = "verdant.exe";
 /// Passed to the relaunched exe so it waits for the old process before opening its window.
 pub const UPDATED_ARG: &str = "--updated";
-/// CI sets this to the run number. Local builds have none and never update themselves.
-const BUILD: Option<&str> = option_env!("VERDANT_BUILD");
+/// CI sets this to the tag the build is published under. Local and pull request builds have
+/// none and never update themselves.
+const TAG: Option<&str> = option_env!("VERDANT_RELEASE_TAG");
 
 static BUSY: AtomicBool = AtomicBool::new(false);
+/// Set when this process was started by an update, so the UI can say so.
+static JUST_UPDATED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub version: String,
-    pub build: Option<u64>,
+    pub tag: Option<String>,
+    pub just_updated: bool,
     pub latest: Option<Release>,
 }
 
@@ -79,8 +83,8 @@ fn client() -> &'static reqwest::Client {
     })
 }
 
-fn build() -> Option<u64> {
-    BUILD.and_then(|b| b.parse().ok())
+fn tag() -> Option<&'static str> {
+    TAG.filter(|t| !t.is_empty())
 }
 
 /// v1.2.0 → (1, 2, 0, 0); v1.2.0-build.7 → (1, 2, 0, 7).
@@ -92,39 +96,42 @@ fn parse_tag(tag: &str) -> Option<(u64, u64, u64, u64)> {
     Some((n(1)?, n(2)?, n(3)?, n(4)?))
 }
 
-fn current(app: &AppHandle) -> Option<(u64, u64, u64, u64)> {
-    let v = &app.package_info().version;
-    Some((v.major, v.minor, v.patch, build()?))
-}
-
 async fn latest() -> Result<(GhRelease, GhAsset), String> {
     let res = client()
-        .get(LATEST)
+        .get(format!("https://api.github.com/repos/{REPO}/releases/latest"))
         .header("Accept", "application/vnd.github+json")
         .timeout(Duration::from_secs(20))
         .send()
         .await
         .map_err(|e| format!("Couldn't reach GitHub: {e}"))?;
-    if !res.status().is_success() {
-        return Err(format!("GitHub answered with HTTP {}.", res.status().as_u16()));
+    match res.status().as_u16() {
+        403 | 429 => return Err("GitHub is limiting update checks right now. Verdant will try again later.".into()),
+        s if s >= 400 => return Err(format!("GitHub answered with HTTP {s}.")),
+        _ => {}
     }
     let rel: GhRelease = res.json().await.map_err(|e| format!("Unexpected answer from GitHub: {e}"))?;
     let asset = rel.assets.iter().find(|a| a.name == ASSET).cloned().ok_or("The latest release has no verdant.exe.")?;
     Ok((rel, asset))
 }
 
-fn newer(app: &AppHandle, tag: &str) -> bool {
-    matches!((parse_tag(tag), current(app)), (Some(l), Some(c)) if l > c)
+/// Only a strictly newer release counts, so Verdant never downgrades or loops between builds.
+fn newer(tag: &str) -> bool {
+    matches!((parse_tag(tag), self::tag().and_then(parse_tag)), (Some(l), Some(c)) if l > c)
 }
 
 pub async fn check(app: &AppHandle) -> Result<Status, String> {
-    let mut status = Status { version: app.package_info().version.to_string(), build: build(), latest: None };
-    if status.build.is_none() {
+    let mut status = Status {
+        version: app.package_info().version.to_string(),
+        tag: tag().map(String::from),
+        just_updated: JUST_UPDATED.load(Ordering::Relaxed),
+        latest: None,
+    };
+    if status.tag.is_none() {
         return Ok(status);
     }
     let (rel, asset) = latest().await?;
     status.latest = Some(Release {
-        newer: newer(app, &rel.tag_name),
+        newer: newer(&rel.tag_name),
         name: rel.name.unwrap_or_else(|| rel.tag_name.clone()),
         tag: rel.tag_name,
         url: rel.html_url,
@@ -150,11 +157,11 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
 }
 
 async fn install_inner(app: &AppHandle) -> Result<(), String> {
-    if build().is_none() {
+    if tag().is_none() {
         return Err("This is a local build, so it doesn't update itself.".into());
     }
     let (rel, asset) = latest().await?;
-    if !newer(app, &rel.tag_name) {
+    if !newer(&rel.tag_name) {
         return Err("Verdant is already up to date.".into());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -170,6 +177,16 @@ async fn install_inner(app: &AppHandle) -> Result<(), String> {
 }
 
 async fn download(app: &AppHandle, asset: &GhAsset, to: &Path) -> Result<(), String> {
+    // Only ever run a file from this repository's releases, checked against GitHub's digest.
+    if !asset.browser_download_url.starts_with(&format!("https://github.com/{REPO}/releases/download/")) {
+        return Err("The update isn't hosted in Verdant's GitHub releases, so it wasn't installed.".into());
+    }
+    let expected = asset
+        .digest
+        .as_deref()
+        .and_then(|d| d.strip_prefix("sha256:"))
+        .ok_or("GitHub didn't publish a checksum for the update, so it wasn't installed.")?;
+
     let res = client().get(&asset.browser_download_url).send().await.map_err(|e| format!("Couldn't download the update: {e}"))?;
     if !res.status().is_success() {
         return Err(format!("GitHub answered with HTTP {} for the update.", res.status().as_u16()));
@@ -203,10 +220,8 @@ async fn download(app: &AppHandle, asset: &GhAsset, to: &Path) -> Result<(), Str
         return Err("The downloaded update isn't a Windows program.".into());
     }
     let hash: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    if let Some(expected) = asset.digest.as_deref().and_then(|d| d.strip_prefix("sha256:")) {
-        if !expected.eq_ignore_ascii_case(&hash) {
-            return Err("The downloaded update doesn't match GitHub's checksum. Nothing was changed.".into());
-        }
+    if !expected.eq_ignore_ascii_case(&hash) {
+        return Err("The downloaded update doesn't match GitHub's checksum. Nothing was changed.".into());
     }
     Ok(())
 }
@@ -236,8 +251,9 @@ pub fn cleanup() {
     let Ok(exe) = std::env::current_exe() else { return };
     let _ = std::fs::remove_file(sibling(&exe, ".new"));
     let old = sibling(&exe, ".old");
-    let tries = if std::env::args().any(|a| a == UPDATED_ARG) { 40 } else { 1 };
-    for _ in 0..tries {
+    let relaunched = std::env::args().any(|a| a == UPDATED_ARG);
+    JUST_UPDATED.store(relaunched, Ordering::Relaxed);
+    for _ in 0..if relaunched { 40 } else { 1 } {
         match std::fs::remove_file(&old) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => std::thread::sleep(Duration::from_millis(250)),
             _ => return,
